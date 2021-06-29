@@ -33,7 +33,7 @@
 
 - 为什么要设计 Lock ？1. 可中断 2. 非阻塞获取锁 3. 支持超时
 
-- 模版模式：
+- 设计思路：从 AQS 的类名称和修饰上来看，这是一个抽象类，所以从设计模式的角度来看同步器一定是基于【模版模式】来设计的，使用者需要继承同步器，实现自定义同步器，并重写指定方法，随后将同步器组合在自定义的同步组件中，并调用同步器的模版方法，而这些模版方法又回调用使用者重写的方法
 
 - 同步器可重写的方法
   - 独占式：tryAcquire tryRelease
@@ -46,8 +46,6 @@
 
 - Node 节点 (Node prev,next;Thread thread;int waitStatus;Node nextWaiter)
 
-  - 
-
   - ```java
     public final void  acquire( int arg) {
         if(!tryAcquire(arg) && acquireQueued(addWaiter(Node.EXCLUSIVE), arg)){
@@ -58,14 +56,35 @@
 
   - AQS 内部维护了一个同步队列，用于管理同步状态。
 
-    - 当线程获取同步状态失败时，就会将当前线程以及等待状态等信息构造成一个 Node 节点，将其加入到同步队列中尾部，阻塞该线程
-    - 当同步状态被释放时，会唤醒同步队列中“首节点”的线程获取同步状态
-
-设计思路：从 AQS 的类名称和修饰上来看，这是一个抽象类，所以从设计模式的角度来看同步器一定是基于【模版模式】来设计的，使用者需要继承同步器，实现自定义同步器，并重写指定方法，随后将同步器组合在自定义的同步组件中，并调用同步器的模版方法，而这些模版方法又回调用使用者重写的方法
-
-
-
-
+    - 线程获取同步状态失败，将当前线程以及等待状态等信息构造成 Node （独占）节点
+    
+    - 加入到同步队列(双向队列head-tail-哨兵Node)中尾部(CAS+自旋(enq))
+    
+    - 结点进入队尾后，争取资源（prev节点是head）成功则升为head，返回中断信息，失败则找到安全休息点(判断前驱节点状态是否为Signnal)
+    
+    - 调用park()进入waiting状态，等待unpark()或interrupt()唤醒自己
+    
+    - 被唤醒后，进入自旋判断是否能争抢到资源。如果拿到，head指向当前结点，并返回从入队到拿到号的整个过程中是否被中断过；如果没拿到，则继续自旋流程
+    
+    - 如果线程在等待过程中被中断过，它是不响应的。只是获取资源后才再进行自我中断selfInterrupt()，将中断补上。
+    
+    - release :用unpark()唤醒等待队列中最前边的那个未放弃线程
+    
+    - ``` java
+      public final boolean release(int arg) {
+      if (tryRelease(arg)) {
+               Node h = head;//找到头结点
+               if (h != null && h.waitStatus != 0)
+                   unparkSuccessor(h);//唤醒等待队列里的下一个线程
+               return true;
+           }
+           return false;
+      }
+      ```
+    
+      
+    
+      
 
 
 
