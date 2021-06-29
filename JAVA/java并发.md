@@ -27,8 +27,6 @@
 
 - Node 节点 (Node prev,next;Thread thread;int waitStatus;Node nextWaiter)
 
-  - 
-
   - ```java
     public final void  acquire( int arg) {
         if(!tryAcquire(arg) && acquireQueued(addWaiter(Node.EXCLUSIVE), arg)){
