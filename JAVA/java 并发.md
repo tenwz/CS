@@ -10,6 +10,25 @@
 
 ## ThreadLocal
 
+### 设计
+
+1. ThreadLocal实例本身不存值，它只提供一个在当前线程中找到副本值的key。
+2. 每个线程以ThreadLocal作为引用，在自己的map里找对应的key，从而实现了线程隔离
+
+源码：Thread#ThreadLocalMap(本质是操作 Entry数组) -> key : ThreadLocal value: Entry key:ThreadLocal(WeakReference) realValue
+
+### 问题
+
+- 内存泄漏：
+  - 弱引用：被弱引用关联的对象只能生存到下一次垃圾收集发生之前
+    - 使用弱引用使 threadlocal 对象不发生内存泄漏（强引用使threadlocal置null依然无法回收）
+    - 若线程不销毁（线程池），Entry 中的 key 为 null 的 Value 对象不会被回收（存在强引用），会导致内存泄漏
+  - 解决办法：
+    - set，get，remove 都会清除此线程 ThreadLocalMap 里 Entry 数组中所有 Key 为 null 的 Value
+    - 线程使用完 threadlocal 后，通过调用 ThreadLocal 的 remove 方法清除，降低内存泄漏的风险
+
+### 场景
+
 ## AQS
 
 - 为什么要设计 Lock ？1. 可中断 2. 非阻塞获取锁 3. 支持超时
@@ -26,6 +45,8 @@
 - 模版方法：(acquire acquireInterruptibly tryAcquireNanos release) (acquireShared acquireSharedInterruptibly tryAcquireSharedNanos releaseShared)
 
 - Node 节点 (Node prev,next;Thread thread;int waitStatus;Node nextWaiter)
+
+  - 
 
   - ```java
     public final void  acquire( int arg) {
