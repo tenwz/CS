@@ -2,9 +2,9 @@
 
 ## volatile
 
-## synchronized
-
-## ReentrantLock
+- 指令重排序
+- 内存屏障
+- 总线风暴
 
 ## ThreadPool
 
@@ -16,6 +16,9 @@
 2. 每个线程以ThreadLocal作为引用，在自己的map里找对应的key，从而实现了线程隔离
 
 源码：Thread#ThreadLocalMap(本质是操作 Entry数组) -> key : ThreadLocal value: Entry key:ThreadLocal(WeakReference) realValue
+
+- 父子线程共享数据
+  - interitableThreadLocals
 
 ### 问题
 
@@ -81,20 +84,14 @@
            return false;
       }
       ```
-    
-      
-    
-      
 
-
+## Synchronized & ReentrantLock & CountDownLatch & CyclicBarrier
 
 
 
 ## ConcurrentHashMap
 
 ## BlockingQueue
-
-## 
 
 
 
