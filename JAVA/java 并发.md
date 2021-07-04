@@ -1,10 +1,86 @@
 # 并发
 
+## JMM
+
+- 对象头中的并发结构
+  - Mark Word
+    - 无锁：对象HashCode，分代年龄，偏向锁标识位0，锁标识位01
+    - 偏向锁：线程ID，Epoch，分代年龄，偏向锁标识位1，锁标识位01 
+    - 轻量级锁：指向栈中锁记录的指针，锁标识位00
+    - 重量级锁：指向互斥量（重量级锁）的指针（指向monitor对象地址（每个对象都有ObjectMonitor与之关联）），锁标识位10
+    - GC标记：空，锁标识位 11
+  - Klass Pointer
+
+## Synchronized
+
+```c++
+//反映出Java中任意对象可以作为锁的原因,同时也是notify/notifyAll/wait等方法存在于顶级对象Object中的原因
+ObjectMonitor() {
+    _count        = 0; //记录数
+    _recursions   = 0; //锁的重入次数
+    _owner        = NULL; //指向持有ObjectMonitor对象的线程 
+    _WaitSet      = NULL; //调用wait后，线程会被加入到_WaitSet
+    _EntryList    = NULL ; //等待获取锁的线程，会被加入到该列表
+}
+```
+
+- 获取过程
+
+  - monitorenter 和 monitorexit ， monitorenter 指向同步代码块的开始位置，monitorexit指向结束位置。 执行 monitorenter 指令时，线程试图获取 monitor对象
+  - 同步方法：flags中：ACC_SYNCHRONIZED 标明同步方法
+
+- 竞争过程
+
+  - <u>新建(new)、就绪(runnable)、运行(running)、堵塞(blocked)、死亡(dead)</u>。
+  - 多线程竞争，失败线程放进EntryList队列，线程处于blocked状态
+  - 线程获取到对象的monitor，进入running状态，执行方法，ObjectMonitor对象的/owner指向当前线程，count加1表示当前对象锁被一个线程获取
+  - running状态的线程调用wait()方法，当前线程释放monitor对象，进入waiting状态，ObjectMonitor对象的/owner变为null，count减1，线程进入WaitSet队列，直到有线程调用notify()方法唤醒，该线程进入EntryList队列，竞争到锁再进入Owner区
+  - 如果当前线程执行完毕，那么也释放monitor对象，ObjectMonitor对象的/_owner变为null，_count减1
+
+- 锁升级过程
+
+  - 偏向锁（背景：一个线程多次获得同一个锁）
+
+    - 偏向锁 <u>不主动释放锁</u>，竞争锁对象时，先比较当前先线程threadId 和 对象头中 threadId 是否一致。一致，进入；不一致，判断对象头线程是否存活。不存活，置为无锁，重新竞争；存活，查找这个占用线程的栈帧信息，判断是否持有这个对象。持有，暂停占用线程，撤销偏向锁，升级为轻量级锁；不持有，设为无锁，重新竞争。
+
+    - 人话：如果锁正被其他线程使用，则竞争失败，升级为轻量级锁
+
+  - 轻量级锁（背景：自选一会儿等待释放）
+
+    - 复制锁对象的整个Mark Word 到该线程的栈帧中（DisplacedMarkWord），CAS把对象头的内容替换为，该线程 DisplacedMarkWord 的地址。CAS失败，不断CAS自旋。自旋次数过多 || 自旋时又有线程来竞争，升级为重量级锁（阻塞所有线程）
+
+- 锁消除
+
+  - 消除锁是虚拟机另外一种锁的优化，这种优化更彻底，Java虚拟机在JIT编译时(可以简单理解为当某段代码即将第一次被执行时进行编译，又称即时编译)，通过对运行上下文的扫描，去除不可能存在共享资源竞争的锁，通过这种方式消除没有必要的锁，可以节省毫无意义的请求锁时间，如下StringBuffer的append是一个同步方法，但是在add方法中的StringBuffer属于一个局部变量，并且不会被其他线程所使用，因此StringBuffer不可能存在共享资源竞争的情景，JVM会自动将其锁消除。
+
+- case ：为什么需要可重入 ？TODO
+
 ## volatile
 
-- 指令重排序
-- 内存屏障
-- 总线风暴
+- happen-before
+  - volatile变量规则：对一个变量的写操作先行发生于后面对这个变量的读操作（分布式场景？）
+- 原理
+  - volatile的变量进行写操作时，会在前面加上lock指令前缀。
+    - lock 指令：先对总线/缓存加锁，然后执行后面的指令，最后释放锁后把高速缓存中的脏数据全部刷新回主内存（可见性）
+      - 嗅探机制：每个处理器会通过<u>**嗅探器**</u>来监控总线上的数据来检查自己缓存内的数据是否过期，如果发现自己缓存行对应的地址被修改了，就会将此缓存行置为无效。当处理器对此数据进行操作时，就会重新从主内存中读取数据到缓存行。
+      - 缓存一致性协议：modified（修改）、exclusive（互斥）、share（共享）、invalid（无效）E -> S -> M -> I
+      - 缓存一致性流量：处理器都是靠一条总线来和主内存进行数据交互。某一处理器更新了此共享数据后，通过总线触发嗅探机制来通知其他处理器将自己高速缓存内的共享数据置为无效，在下次使用时重新从主内存加载最新数据。这种通过总线来进行通信则称之为”缓存一致性流量“。
+      - 总线风暴：CAS 在多核CPU下，指令为 lock +  cmpxchg ;volatile和cas使用过多，导致缓存一致性流量增大，称为总线风暴。
+    - 内存屏障 (防止指令重排)
+      -  load：作用于工作内存，主内存传递来的值赋给工作内存工作变量
+      -  store：作用于工作内存的变量，工作内存工作变量传送到主内存中。
+      - 在每个volatile写操作前插入StoreStore屏障，在写操作后插入StoreLoad屏障
+        在每个volatile读操作前插入LoadLoad屏障，在读操作后插入LoadStore屏障；
+- case
+  - 指令重排序
+    - 双重检查锁
+      - new 步骤 
+        - 分配内存空间 2. 初始化对象 3. 将引用指向对象内存地址（存疑）
+        - 重排可能出现 132 
+        - 第二次判断时因为内存地址已分配，导致可能直接返回一个未初始化完成的对象引用。
+  - 可见性
+    - synchronized 亦能保证
+    - 场景：<u>while重循环</u>（JIT）无法判断多线程下条件flag更改，引入 volatile
 
 ## ThreadPool
 
@@ -85,9 +161,17 @@
       }
       ```
 
-## Synchronized & ReentrantLock & CountDownLatch & CyclicBarrier
+## ReentrantLock & CountDownLatch & CyclicBarrier
 
+## Atomic
 
+AtomicInteger 类主要利用 CAS + **<u>volatile</u>** 和 native 方法来保证原子操作
+
+- 问题：
+  - CAS ABA
+    - AtomicStampedReference：维护一个Pair对象，Pair对象存储我们的对象引用和一个stamp值（版本号）。每次CAS比较的是两个Pair对象
+  - long double 非原子性
+    - 32位机 单次次操作能处理的最长长度为32bit，而long类型8字节64bit，所以对long的读写都要两条指令才能完成（即每次读写64bit中的32bit）。如果JVM要保证long和double读写的原子性，势必要做额外的处理（**volatile**）。
 
 ## ConcurrentHashMap
 
