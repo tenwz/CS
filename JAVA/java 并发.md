@@ -94,7 +94,25 @@ ObjectMonitor() {
 源码：Thread#ThreadLocalMap(本质是操作 Entry数组) -> key : ThreadLocal value: Entry key:ThreadLocal(WeakReference) realValue
 
 - 父子线程共享数据
-  - interitableThreadLocals
+
+  - 原理
+
+    - 通过inheritableThreadLocals我们可以在父线程创建子线程的时候将Local中的值传递给子线程
+
+    - InheritableThreadLocal 重写了childValue, getMap,createMap三个方法，当我们往里面set值的时候，值保存到了inheritableThreadLocals里面，而不是之前的threadLocals。
+
+    - 新创建线程的时候，会把之前线程的inheritableThreadLocals赋值给新线程的inheritableThreadLocals，通过这种方式实现了数据的传递。
+
+    - ```java
+      if (parent.inheritableThreadLocals != null)
+           this.inheritableThreadLocals =
+                      ThreadLocal.createInheritedMap(parent.inheritableThreadLocals)
+      ```
+
+  - 问题
+
+    - 如果是在线程复用的情况下，比如线程池中去使用inheritableThreadLocals 进行传值，因为inheritableThreadLocals 只是会再新创建线程的时候进行传值，线程复用并不会做这个操作，那么要解决这个问题就得自己去扩展线程类，实现这个功能。
+    - [transmittable-thread-local](https://github.com/alibaba/transmittable-thread-local)
 
 ### 问题
 
@@ -161,7 +179,7 @@ ObjectMonitor() {
       }
       ```
 
-## ReentrantLock & CountDownLatch & CyclicBarrier
+## ReentrantLock & CountDownLatch&  Semaphore & CyclicBarrier
 
 ## Atomic
 
